@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Snake</title>
+<style>
+:root{--page:#e6e9ec;--hint:#3a4048;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--page:#15181c;--hint:#a7aeb6;color-scheme:dark}}
+:root[data-theme="dark"]{--page:#15181c;--hint:#a7aeb6;color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--page);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;overflow-x:hidden}
+.phone{width:min(340px,100%);background:linear-gradient(160deg,#2c4a72,#17304f 60%,#10233b);border-radius:56px 56px 72px 72px/40px 40px 90px 90px;padding:26px 22px 32px;box-shadow:inset 0 2px 0 rgba(255,255,255,.15),inset 0 -4px 10px rgba(0,0,0,.35),0 18px 40px rgba(0,0,0,.35)}
+.speaker{width:56px;height:6px;border-radius:3px;background:#0b1828;margin:0 auto 16px;box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
+.bezel{background:#0e1a29;border-radius:14px 14px 22px 22px;padding:14px 14px 18px;box-shadow:inset 0 2px 6px rgba(0,0,0,.6)}
+.lcd{position:relative;background:#c7f0d8;border-radius:4px;overflow:hidden;touch-action:none;cursor:pointer;box-shadow:inset 0 0 12px rgba(67,82,61,.35)}
+canvas{display:block;width:100%;height:auto;image-rendering:pixelated;image-rendering:crisp-edges}
+.grid{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(to right,rgba(199,240,216,.5) 1px,transparent 1px),linear-gradient(to bottom,rgba(199,240,216,.5) 1px,transparent 1px);background-size:calc(100%/84) calc(100%/48)}
+.nojs{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:8px 12px;color:#43523d;font-size:14px;font-weight:600;line-height:1.35;background:#c7f0d8}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 14px;margin-top:24px}
+.key{appearance:none;border:0;height:54px;border-radius:50% 50% 46% 46%/60% 60% 40% 40%;background:linear-gradient(#e8edf2,#b7c1cb);color:#1d2a38;font:700 20px/1 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;box-shadow:0 3px 0 #0a1626,inset 0 1px 0 #fff;touch-action:manipulation;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;transition:transform .05s}
+.key small{font-size:11px;font-weight:600;color:#4c5b6b}
+.key:active,.key.on{transform:translateY(2px);box-shadow:0 1px 0 #0a1626,inset 0 1px 0 #fff}
+.key.idle{opacity:.5;cursor:default}
+.hint{margin-top:18px;color:var(--hint);font-size:14px;text-align:center;max-width:34ch;line-height:1.45}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="speaker"></div>
+  <div class="bezel">
+    <div class="lcd" id="lcd">
+      <canvas id="c" width="84" height="48" role="img" aria-label="Snake-spillbrett"></canvas>
+      <div class="grid"></div>
+      <div class="nojs" id="nojs">Åpne filen i nettleseren (Chrome eller Safari) for å spille.</div>
+    </div>
+  </div>
+  <div class="keys" id="keys">
+    <button class="key idle" tabindex="-1">1</button>
+    <button class="key" tabindex="-1" data-k="up">2<small>▲</small></button>
+    <button class="key idle" tabindex="-1">3</button>
+    <button class="key" tabindex="-1" data-k="left">4<small>◀</small></button>
+    <button class="key" tabindex="-1" data-k="ok">5<small>start</small></button>
+    <button class="key" tabindex="-1" data-k="right">6<small>▶</small></button>
+    <button class="key idle" tabindex="-1">7</button>
+    <button class="key" tabindex="-1" data-k="down">8<small>▼</small></button>
+    <button class="key idle" tabindex="-1">9</button>
+    <button class="key idle" tabindex="-1">*</button>
+    <button class="key idle" tabindex="-1">0</button>
+    <button class="key idle" tabindex="-1">#</button>
+  </div>
+</div>
+<p class="hint">Styr med 2, 4, 6 og 8, piltastene eller sveip på skjermen. 5 starter og pauser.</p>
+
+<script>
+window.addEventListener('error',function(e){
+  var lcd=document.getElementById('lcd');if(!lcd)return;
+  var d=document.createElement('div');d.className='nojs';
+  d.textContent='Feil: '+(e.message||'ukjent')+' (linje '+(e.lineno||'?')+')';lcd.appendChild(d);
+});
+</script>
+<script>
+(function(){
+const nj=document.getElementById('nojs');if(nj)nj.remove();
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const W=84,H=48,C=3,COLS=26,ROWS=12,OX=3,OY=10,INK='#43523d',BG='#c7f0d8';
+
+// 3x5 pikselfont
+const F={'0':'111101101101111','1':'010110010010111','2':'111001111100111','3':'111001111001111','4':'101101111001001','5':'111100111001111','6':'111100111101111','7':'111001001010010','8':'111101111101111','9':'111101111001111',
+A:'010101111101101',B:'110101110101110',C:'011100100100011',D:'110101101101110',E:'111100110100111',F:'111100110100100',G:'011100101101011',H:'101101111101101',I:'111010010010111',J:'001001001101010',K:'101101110101101',L:'100100100100111',M:'101111111101101',N:'110101101101101',O:'010101101101010',P:'110101110100100',R:'110101110101101',S:'011100010001110',T:'111010010010010',U:'101101101101111',V:'101101101101010',W:'101101111111101',Y:'101101010010010','!':'010010010000010'};
+function text(s,x,y,sc){sc=sc||1;for(const ch of s.toUpperCase()){const g=F[ch];if(g)for(let i=0;i<15;i++)if(g[i]==='1')ctx.fillRect(x+(i%3)*sc,y+Math.floor(i/3)*sc,sc,sc);x+=4*sc;}}
+function tw(s,sc){sc=sc||1;return s.length*4*sc-sc}
+function ctext(s,y,sc){text(s,Math.round((W-tw(s,sc))/2),y,sc)}
+function pad(n){return String(n).padStart(4,'0')}
+function buzz(p){try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
+
+let snake,dir,queue,food,score=0,eaten,state='start',timer=null,blink=0,best=0,newBest=false;
+try{best=parseInt(localStorage.getItem('snake-best'),10)||0}catch(e){}
+
+function reset(){const y=Math.floor(ROWS/2);snake=[{x:8,y},{x:7,y},{x:6,y},{x:5,y}];dir={x:1,y:0};queue=[];score=0;eaten=0;newBest=false;placeFood();}
+function placeFood(){const free=[];for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)if(!snake.some(s=>s.x===x&&s.y===y))free.push({x,y});food=free.length?free[Math.floor(Math.random()*free.length)]:null;}
+function level(){return Math.min(9,1+Math.floor(eaten/5))}
+function delay(){return Math.max(65,190-level()*13)}
+
+function tick(){
+  if(queue.length)dir=queue.shift();
+  const h={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+  const grow=food&&h.x===food.x&&h.y===food.y;
+  const body=grow?snake:snake.slice(0,-1);
+  if(h.x<0||h.y<0||h.x>=COLS||h.y>=ROWS||body.some(s=>s.x===h.x&&s.y===h.y)){die();return;}
+  snake.unshift(h);
+  if(grow){eaten++;score+=level();buzz(20);placeFood();if(!food){die();return;}}
+  else snake.pop();
+  draw();timer=setTimeout(tick,delay());
+}
+function die(){
+  clearTimeout(timer);state='dying';blink=0;buzz([80,50,80]);
+  if(score>best){best=score;newBest=true;try{localStorage.setItem('snake-best',best)}catch(e){}}
+  const iv=setInterval(()=>{blink++;draw();if(blink>=7){clearInterval(iv);state='over';draw();}},160);
+}
+function start(){clearTimeout(timer);reset();state='play';draw();timer=setTimeout(tick,delay());}
+function pause(){if(state!=='play')return;clearTimeout(timer);state='pause';draw();}
+function resume(){if(state!=='pause')return;state='play';draw();timer=setTimeout(tick,delay());}
+
+function draw(){
+  ctx.fillStyle=BG;ctx.fillRect(0,0,W,H);ctx.fillStyle=INK;
+  if(state==='start'){ctext('SNAKE',6,2);ctext('REKORD '+pad(best),23,1);ctext('TRYKK 5',35,1);return;}
+  text(pad(score),1,1);
+  if(state==='pause')text('PAUSE',W-tw('PAUSE')-1,1);
+  ctx.fillRect(0,8,W,1);ctx.fillRect(0,H-1,W,1);ctx.fillRect(0,8,1,H-8);ctx.fillRect(W-1,8,1,H-8);
+  if(state==='over'){
+    ctext('GAME OVER',12,1);ctext('POENG '+pad(score),20,1);
+    if(newBest)ctext('NY REKORD!',28,1);
+    ctext('TRYKK 5',38,1);return;
+  }
+  if(food){const cx=OX+food.x*C+1,cy=OY+food.y*C+1;ctx.fillRect(cx,cy-1,1,3);ctx.fillRect(cx-1,cy,3,1);}
+  if(state==='dying'&&blink%2===1)return;
+  for(const s of snake)ctx.fillRect(OX+s.x*C,OY+s.y*C,C,C);
+}
+
+const DIRS={up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}};
+function turn(n){
+  if(state==='start'||state==='over')start();
+  else if(state==='pause')resume();
+  if(state!=='play')return;
+  const d=DIRS[n],last=queue.length?queue[queue.length-1]:dir;
+  if((d.x===-last.x&&d.y===-last.y)||(d.x===last.x&&d.y===last.y))return;
+  if(queue.length<3)queue.push(d);
+}
+function ok(){
+  if(state==='start'||state==='over')start();
+  else if(state==='play')pause();
+  else if(state==='pause')resume();
+}
+function act(k){if(k==='ok')ok();else if(DIRS[k])turn(k);}
+
+// Tastatur
+const KEYMAP={ArrowUp:'up',w:'up',W:'up','8':'up',ArrowDown:'down',s:'down',S:'down','2':'down',ArrowLeft:'left',a:'left',A:'left','4':'left',ArrowRight:'right',d:'right',D:'right','6':'right',' ':'ok',Enter:'ok','5':'ok'};
+// Telefontastatur: 2 = opp, 8 = ned (som på Nokia)
+KEYMAP['2']='up';KEYMAP['8']='down';
+document.addEventListener('keydown',e=>{
+  const k=KEYMAP[e.key];if(!k)return;e.preventDefault();act(k);
+  const b=document.querySelector('[data-k="'+k+'"]');if(b){b.classList.add('on');setTimeout(()=>b.classList.remove('on'),90);}
+});
+
+// Knapper på telefonen (touch + mus, fungerer også på eldre iPhone)
+let lastTouch=0;
+function press(b){act(b.dataset.k);b.classList.add('on');setTimeout(()=>b.classList.remove('on'),90);}
+const keys=document.getElementById('keys');
+keys.addEventListener('touchstart',e=>{const b=e.target.closest&&e.target.closest('[data-k]');if(!b)return;e.preventDefault();lastTouch=Date.now();press(b);},{passive:false});
+keys.addEventListener('mousedown',e=>{if(Date.now()-lastTouch<800)return;const b=e.target.closest('[data-k]');if(!b)return;e.preventDefault();press(b);});
+
+// Sveip og trykk på skjermen
+const lcd=document.getElementById('lcd');let sx=0,sy=0,down=false,moved=false;
+function sStart(x,y){down=true;moved=false;sx=x;sy=y;}
+function sMove(x,y){
+  if(!down)return;const dx=x-sx,dy=y-sy;
+  if(Math.max(Math.abs(dx),Math.abs(dy))<22)return;
+  turn(Math.abs(dx)>Math.abs(dy)?(dx>0?'right':'left'):(dy>0?'down':'up'));
+  moved=true;sx=x;sy=y;
+}
+function sEnd(){if(down&&!moved&&state!=='play'&&state!=='dying')ok();down=false;}
+lcd.addEventListener('touchstart',e=>{const t=e.touches[0];lastTouch=Date.now();sStart(t.clientX,t.clientY);e.preventDefault();},{passive:false});
+lcd.addEventListener('touchmove',e=>{const t=e.touches[0];sMove(t.clientX,t.clientY);e.preventDefault();},{passive:false});
+lcd.addEventListener('touchend',e=>{sEnd();e.preventDefault();},{passive:false});
+lcd.addEventListener('touchcancel',()=>{down=false;});
+lcd.addEventListener('mousedown',e=>{if(Date.now()-lastTouch<800)return;sStart(e.clientX,e.clientY);});
+window.addEventListener('mousemove',e=>{if(down)sMove(e.clientX,e.clientY);});
+window.addEventListener('mouseup',()=>{if(down)sEnd();});
+
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
+draw();
+})();
+</script>
+</body>
+</html>
